@@ -17,11 +17,35 @@
  */
 struct list_head *q_new()
 {
-    return NULL;
+    /* note that list_entry() - Calculate address of entry that contains list
+     * node Every list_head* is stored in the entry(element_t),except the head
+     * The head pointing to the head and tail of the queue,
+     * pointing to itself when the q is empty.
+     */
+    struct list_head *head = malloc(sizeof(struct list_head));
+    if (head)
+        INIT_LIST_HEAD(head);
+    return head;
 }
 
 /* Free all storage used by queue */
-void q_free(struct list_head *l) {}
+void q_free(struct list_head *l)
+{
+    /* note that list_for_each_entry_safe - iterate over list entries and allow
+     * deletes list_for_each_entry_safe(entry, safe, head, member) entry :
+     * element_t , the iterator safe : the ptr to next entry, allowing us to
+     * delete entry while iterating head : head of the list member : name
+     * element_t uses to ref the list ptrs
+     */
+    if (l == NULL) {
+        return;
+    }
+    element_t *entry, *safe;
+    list_for_each_entry_safe (entry, safe, l, list) {
+        q_release_element(entry);
+    }
+    free(l);
+}
 
 /*
  * Attempt to insert element at head of queue.
