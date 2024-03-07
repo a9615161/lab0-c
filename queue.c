@@ -127,7 +127,7 @@ element_t *q_remove_head(struct list_head *head, char *sp, size_t bufsize)
     // queue is NULL or empty
     if (!head || list_empty(head))
         return NULL;
-    element_t *node = list_first_entry(head->next, element_t, list);
+    element_t *node = list_first_entry(head, element_t, list);
     return remove_Node(node, sp, bufsize);
 }
 
@@ -197,6 +197,7 @@ bool q_delete_mid(struct list_head *head)
         movingf = !movingf;
     }
     element_t *tmp = list_entry(forwarding, element_t, list);
+    list_del_init(forwarding);
     q_release_element(tmp);
     // https://leetcode.com/problems/delete-the-middle-node-of-a-linked-list/
     return true;
