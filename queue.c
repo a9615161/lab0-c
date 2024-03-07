@@ -18,7 +18,8 @@
 struct list_head *q_new()
 {
     /* note that list_entry() - Calculate address of entry that contains list
-     * node Every list_head* is stored in the entry(element_t),except the head
+     * node
+     * Every list_head* is stored in the entry(element_t),except the head
      * The head pointing to the head and tail of the queue,
      * pointing to itself when the q is empty.
      */
@@ -32,18 +33,18 @@ struct list_head *q_new()
 void q_free(struct list_head *l)
 {
     /* note that list_for_each_entry_safe - iterate over list entries and allow
-     * deletes list_for_each_entry_safe(entry, safe, head, member) entry :
-     * element_t , the iterator safe : the ptr to next entry, allowing us to
-     * delete entry while iterating head : head of the list member : name
-     * element_t uses to ref the list ptrs
+     * to delete entry
+     * entry:element_t , the iterator
+     * safe :the ptr to next entry, allowing us to
+     * delete entry while iterating
+     * head : head of the list
+     * member : name element_t uses to ref the list ptrs
      */
-    if (l == NULL) {
+    if (l == NULL)
         return;
-    }
     element_t *entry, *safe;
-    list_for_each_entry_safe (entry, safe, l, list) {
+    list_for_each_entry_safe (entry, safe, l, list)
         q_release_element(entry);
-    }
     free(l);
 }
 
@@ -54,8 +55,26 @@ void q_free(struct list_head *l)
  * Argument s points to the string to be stored.
  * The function must explicitly allocate space and copy the string into it.
  */
+bool iniNode(char *s, element_t **newNode)
+{
+    *newNode = (element_t *) malloc(sizeof(element_t));
+    char *newVal = strdup(s);
+    if (*newNode && newVal) {
+        (*newNode)->value = newVal;
+        (*newNode)->list.next = NULL;
+        (*newNode)->list.prev = NULL;
+        return true;
+    } else
+        return false;
+}
 bool q_insert_head(struct list_head *head, char *s)
 {
+    element_t *newNode = NULL;
+    if (!head || !s)
+        return false;
+    if (!iniNode(s, &newNode))
+        return false;
+    list_add(&(newNode->list), head);
     return true;
 }
 
@@ -68,6 +87,12 @@ bool q_insert_head(struct list_head *head, char *s)
  */
 bool q_insert_tail(struct list_head *head, char *s)
 {
+    element_t *newNode = NULL;
+    if (!head || !s)
+        return false;
+    if (!iniNode(s, &newNode))
+        return false;
+    list_add_tail(&(newNode->list), head);
     return true;
 }
 
@@ -85,9 +110,25 @@ bool q_insert_tail(struct list_head *head, char *s)
  * REF:
  * https://english.stackexchange.com/questions/52508/difference-between-delete-and-remove
  */
+element_t *remove_Node(element_t *node, char *sp, size_t bufsize)
+{
+    if (!node)
+        return NULL;
+    // copy the value to sp
+    if (sp && bufsize != 0) {
+        strncpy(sp, node->value, bufsize - 1);
+        sp[bufsize - 1] = '\0';
+    }
+    list_del_init(&(node->list));
+    return node;
+}
 element_t *q_remove_head(struct list_head *head, char *sp, size_t bufsize)
 {
-    return NULL;
+    // queue is NULL or empty
+    if (!head || list_empty(head))
+        return NULL;
+    element_t *node = list_first_entry(head->next, element_t, list);
+    return remove_Node(node, sp, bufsize);
 }
 
 /*
@@ -96,7 +137,11 @@ element_t *q_remove_head(struct list_head *head, char *sp, size_t bufsize)
  */
 element_t *q_remove_tail(struct list_head *head, char *sp, size_t bufsize)
 {
-    return NULL;
+    // queue is NULL or empty
+    if (!head || list_empty(head))
+        return NULL;
+    element_t *node = list_last_entry(head, element_t, list);
+    return remove_Node(node, sp, bufsize);
 }
 
 /*
@@ -137,6 +182,22 @@ int q_size(struct list_head *head)
  */
 bool q_delete_mid(struct list_head *head)
 {
+    // list is NULL or empty
+    if (!head || list_empty(head))
+        return false;
+    struct list_head *forwarding = head->next;
+    struct list_head *backwarding = head->prev;
+    // Erasing the ⌊n / 2⌋th node , move foward first.
+    bool movingf = true;
+    while (forwarding != backwarding) {
+        if (movingf)
+            forwarding = forwarding->next;
+        else
+            backwarding = backwarding->prev;
+        movingf = !movingf;
+    }
+    element_t *tmp = list_entry(forwarding, element_t, list);
+    q_release_element(tmp);
     // https://leetcode.com/problems/delete-the-middle-node-of-a-linked-list/
     return true;
 }
@@ -150,8 +211,25 @@ bool q_delete_mid(struct list_head *head)
  * Note: this function always be called after sorting, in other words,
  * list is guaranteed to be sorted in ascending order.
  */
+bool isDup(element_t *a, element_t *b)
+{
+    return !strcmp(a->value, b->value);
+}
 bool q_delete_dup(struct list_head *head)
 {
+    // list is NULL
+    if (!head)
+        return false;
+    element_t *entry, *safe;
+    list_for_each_entry_safe (entry, safe, head, list) {
+        // note that safe->list could be head
+        if (&safe->list == head)
+            break;
+        if (isDup(entry, safe)) {
+            list_del(&(entry->list));
+            q_release_element(entry);
+        }
+    }
     // https://leetcode.com/problems/remove-duplicates-from-sorted-list-ii/
     return true;
 }
