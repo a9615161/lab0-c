@@ -1,10 +1,7 @@
 /* Implementation of simple command-line interface */
 
-#include "console.h"
-
 #include <ctype.h>
 #include <fcntl.h>
-#include <inttypes.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -12,15 +9,17 @@
 #include <string.h>
 #include <sys/select.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <unistd.h>
 
+#include "console.h"
 #include "report.h"
+#include "web.h"
 
 /* Some global values */
 int simulation = 0;
-static cmd_ptr cmd_list = NULL;
-static param_ptr param_list = NULL;
+int show_entropy = 0;
+static cmd_element_t *cmd_list = NULL;
+static param_element_t *param_list = NULL;
 static bool block_flag = false;
 static bool prompt_flag = true;
 
@@ -28,26 +27,23 @@ static bool prompt_flag = true;
 static bool block_timing = false;
 
 /* Time of day */
-static double first_time;
-static double last_time;
+static double first_time, last_time;
 
-/*
- * Implement buffered I/O using variant of RIO package from CS:APP
+/* Implement buffered I/O using variant of RIO package from CS:APP
  * Must create stack of buffers to handle I/O with nested source commands.
  */
 
 #define RIO_BUFSIZE 8192
-typedef struct RIO_ELE rio_t, *rio_ptr;
 
-struct RIO_ELE {
+typedef struct __rio {
     int fd;                /* File descriptor */
-    int cnt;               /* Unread bytes in internal buffer */
+    int count;             /* Unread bytes in internal buffer */
     char *bufptr;          /* Next unread byte in internal buffer */
     char buf[RIO_BUFSIZE]; /* Internal buffer */
-    rio_ptr prev;          /* Next element in stack */
-};
+    struct __rio *prev;    /* Next element in stack */
+} rio_t;
 
-static rio_ptr buf_stack;
+static rio_t *buf_stack;
 static char linebuf[RIO_BUFSIZE];
 
 /* Maximum file descriptor */
@@ -66,7 +62,7 @@ static bool has_infile = false;
 /* Maximum number of quit functions */
 
 #define MAXQUIT 10
-static cmd_function quit_helpers[MAXQUIT];
+static cmd_func_t quit_helpers[MAXQUIT];
 static int quit_helper_cnt = 0;
 
 static void init_in();
@@ -77,56 +73,56 @@ static void pop_file();
 static bool interpret_cmda(int argc, char *argv[]);
 
 /* Add a new command */
-void add_cmd(char *name, cmd_function operation, char *documentation)
+void add_cmd(char *name, cmd_func_t operation, char *summary, char *param)
 {
-    cmd_ptr next_cmd = cmd_list;
-    cmd_ptr *last_loc = &cmd_list;
+    cmd_element_t *next_cmd = cmd_list;
+    cmd_element_t **last_loc = &cmd_list;
     while (next_cmd && strcmp(name, next_cmd->name) > 0) {
         last_loc = &next_cmd->next;
         next_cmd = next_cmd->next;
     }
 
-    cmd_ptr ele = (cmd_ptr) malloc_or_fail(sizeof(cmd_ele), "add_cmd");
-    ele->name = name;
-    ele->operation = operation;
-    ele->documentation = documentation;
-    ele->next = next_cmd;
-    *last_loc = ele;
+    cmd_element_t *cmd = malloc_or_fail(sizeof(cmd_element_t), "add_cmd");
+    cmd->name = name;
+    cmd->operation = operation;
+    cmd->summary = summary;
+    cmd->param = param;
+    cmd->next = next_cmd;
+    *last_loc = cmd;
 }
 
 /* Add a new parameter */
-void add_param(char *name,
-               int *valp,
-               char *documentation,
-               setter_function setter)
+void add_param(char *name, int *valp, char *summary, setter_func_t setter)
 {
-    param_ptr next_param = param_list;
-    param_ptr *last_loc = &param_list;
+    param_element_t *next_param = param_list;
+    param_element_t **last_loc = &param_list;
     while (next_param && strcmp(name, next_param->name) > 0) {
         last_loc = &next_param->next;
         next_param = next_param->next;
     }
 
-    param_ptr ele = (param_ptr) malloc_or_fail(sizeof(param_ele), "add_param");
-    ele->name = name;
-    ele->valp = valp;
-    ele->documentation = documentation;
-    ele->setter = setter;
-    ele->next = next_param;
-    *last_loc = ele;
+    param_element_t *param =
+        malloc_or_fail(sizeof(param_element_t), "add_param");
+    param->name = name;
+    param->valp = valp;
+    param->summary = summary;
+    param->setter = setter;
+    param->next = next_param;
+    *last_loc = param;
 }
 
 /* Parse a string into a command line */
 static char **parse_args(char *line, int *argcp)
 {
-    /*
-     * Must first determine how many arguments there are.
+    /* Must first determine how many arguments there are.
      * Replace all white space with null characters
      */
     size_t len = strlen(line);
+
     /* First copy into buffer with each substring null-terminated */
     char *buf = malloc_or_fail(len + 1, "parse_args");
     buf[len] = '\0';
+
     char *src = line;
     char *dst = buf;
     bool skipping = true;
@@ -177,7 +173,7 @@ static bool interpret_cmda(int argc, char *argv[])
     if (argc == 0)
         return true;
     /* Try to find matching command */
-    cmd_ptr next_cmd = cmd_list;
+    cmd_element_t *next_cmd = cmd_list;
     bool ok = true;
     while (next_cmd && strcmp(argv[0], next_cmd->name) != 0)
         next_cmd = next_cmd->next;
@@ -200,9 +196,6 @@ static bool interpret_cmd(char *cmdline)
     if (quit_flag)
         return false;
 
-#if RPT >= 6
-    report(6, "Interpreting command '%s'\n", cmdline);
-#endif
     int argc;
     char **argv = parse_args(cmdline, &argc);
     bool ok = interpret_cmda(argc, argv);
@@ -214,7 +207,7 @@ static bool interpret_cmd(char *cmdline)
 }
 
 /* Set function to be executed as part of program exit */
-void add_quit_helper(cmd_function qf)
+void add_quit_helper(cmd_func_t qf)
 {
     if (quit_helper_cnt < MAXQUIT)
         quit_helpers[quit_helper_cnt++] = qf;
@@ -231,19 +224,19 @@ void set_echo(bool on)
 /* Built-in commands */
 static bool do_quit(int argc, char *argv[])
 {
-    cmd_ptr c = cmd_list;
+    cmd_element_t *c = cmd_list;
     bool ok = true;
     while (c) {
-        cmd_ptr ele = c;
+        cmd_element_t *ele = c;
         c = c->next;
-        free_block(ele, sizeof(cmd_ele));
+        free_block(ele, sizeof(cmd_element_t));
     }
 
-    param_ptr p = param_list;
+    param_element_t *p = param_list;
     while (p) {
-        param_ptr ele = p;
+        param_element_t *ele = p;
         p = p->next;
-        free_block(ele, sizeof(param_ele));
+        free_block(ele, sizeof(param_element_t));
     }
 
     while (buf_stack)
@@ -259,17 +252,18 @@ static bool do_quit(int argc, char *argv[])
 
 static bool do_help(int argc, char *argv[])
 {
-    cmd_ptr clist = cmd_list;
+    cmd_element_t *clist = cmd_list;
     report(1, "Commands:", argv[0]);
     while (clist) {
-        report(1, "\t%s\t%s", clist->name, clist->documentation);
+        report(1, "  %-12s%-12s | %s", clist->name, clist->param,
+               clist->summary);
         clist = clist->next;
     }
-    param_ptr plist = param_list;
+    param_element_t *plist = param_list;
     report(1, "Options:");
     while (plist) {
-        report(1, "\t%s\t%d\t%s", plist->name, *plist->valp,
-               plist->documentation);
+        report(1, "  %-12s%-12d | %s", plist->name, *plist->valp,
+               plist->summary);
         plist = plist->next;
     }
     return true;
@@ -304,11 +298,11 @@ bool get_int(char *vname, int *loc)
 static bool do_option(int argc, char *argv[])
 {
     if (argc == 1) {
-        param_ptr plist = param_list;
+        param_element_t *plist = param_list;
         report(1, "Options:");
         while (plist) {
-            report(1, "\t%s\t%d\t%s", plist->name, *plist->valp,
-                   plist->documentation);
+            report(1, "  %-12s%-12d | %s", plist->name, *plist->valp,
+                   plist->summary);
             plist = plist->next;
         }
         return true;
@@ -327,7 +321,7 @@ static bool do_option(int argc, char *argv[])
             return false;
         }
         /* Find parameter in list */
-        param_ptr plist = param_list;
+        param_element_t *plist = param_list;
         while (!found && plist) {
             if (strcmp(plist->name, name) == 0) {
                 int oldval = *plist->valp;
@@ -397,6 +391,29 @@ static bool do_time(int argc, char *argv[])
     return ok;
 }
 
+static bool use_linenoise = true;
+static int web_fd;
+
+static bool do_web(int argc, char *argv[])
+{
+    int port = 9999;
+    if (argc == 2) {
+        if (argv[1][0] >= '0' && argv[1][0] <= '9')
+            port = atoi(argv[1]);
+    }
+
+    web_fd = web_open(port);
+    if (web_fd > 0) {
+        printf("listen on port %d, fd is %d\n", port, web_fd);
+        line_set_eventmux_callback(web_eventmux);
+        use_linenoise = false;
+    } else {
+        perror("ERROR");
+        exit(web_fd);
+    }
+    return true;
+}
+
 /* Initialize interpreter */
 void init_cmd()
 {
@@ -405,17 +422,21 @@ void init_cmd()
     err_cnt = 0;
     quit_flag = false;
 
-    ADD_COMMAND(help, "                | Show documentation");
-    ADD_COMMAND(option, " [name val]     | Display or set options");
-    ADD_COMMAND(quit, "                | Exit program");
-    ADD_COMMAND(source, " file           | Read commands from source file");
-    ADD_COMMAND(log, " file           | Copy output to file");
-    ADD_COMMAND(time, " cmd arg ...    | Time command execution");
-    add_cmd("#", do_comment_cmd, " ...            | Display comment");
+    ADD_COMMAND(help, "Show summary", "");
+    ADD_COMMAND(option,
+                "Display or set options. See 'Options' section for details",
+                "[name val]");
+    ADD_COMMAND(quit, "Exit program", "");
+    ADD_COMMAND(source, "Read commands from source file", "");
+    ADD_COMMAND(log, "Copy output to file", "file");
+    ADD_COMMAND(time, "Time command execution", "cmd arg ...");
+    ADD_COMMAND(web, "Read commands from builtin web server", "[port]");
+    add_cmd("#", do_comment_cmd, "Display comment", "...");
     add_param("simulation", &simulation, "Start/Stop simulation mode", NULL);
     add_param("verbose", &verblevel, "Verbosity level", NULL);
     add_param("error", &err_limit, "Number of errors until exit", NULL);
     add_param("echo", &echo, "Do/don't echo commands", NULL);
+    add_param("entropy", &show_entropy, "Show/Hide Shannon entropy", NULL);
 
     init_in();
     init_time(&last_time);
@@ -436,9 +457,9 @@ static bool push_file(char *fname)
     if (fd > fd_max)
         fd_max = fd;
 
-    rio_ptr rnew = malloc_or_fail(sizeof(rio_t), "push_file");
+    rio_t *rnew = malloc_or_fail(sizeof(rio_t), "push_file");
     rnew->fd = fd;
-    rnew->cnt = 0;
+    rnew->count = 0;
     rnew->bufptr = rnew->buf;
     rnew->prev = buf_stack;
     buf_stack = rnew;
@@ -450,7 +471,7 @@ static bool push_file(char *fname)
 static void pop_file()
 {
     if (buf_stack) {
-        rio_ptr rsave = buf_stack;
+        rio_t *rsave = buf_stack;
         buf_stack = rsave->prev;
         close(rsave->fd);
         free_block(rsave, sizeof(rio_t));
@@ -468,19 +489,18 @@ static void init_in()
  */
 static char *readline()
 {
-    int cnt;
     char c;
     char *lptr = linebuf;
 
     if (!buf_stack)
         return NULL;
 
-    for (cnt = 0; cnt < RIO_BUFSIZE - 2; cnt++) {
-        if (buf_stack->cnt <= 0) {
+    for (int cnt = 0; cnt < RIO_BUFSIZE - 2; cnt++) {
+        if (buf_stack->count <= 0) {
             /* Need to read from input file */
-            buf_stack->cnt = read(buf_stack->fd, buf_stack->buf, RIO_BUFSIZE);
+            buf_stack->count = read(buf_stack->fd, buf_stack->buf, RIO_BUFSIZE);
             buf_stack->bufptr = buf_stack->buf;
-            if (buf_stack->cnt <= 0) {
+            if (buf_stack->count <= 0) {
                 /* Encountered EOF */
                 pop_file();
                 if (cnt > 0) {
@@ -501,7 +521,7 @@ static char *readline()
         /* Have text in buffer */
         c = *buf_stack->bufptr++;
         *lptr++ = c;
-        buf_stack->cnt--;
+        buf_stack->count--;
         if (c == '\n')
             break;
     }
@@ -525,8 +545,7 @@ static bool cmd_done()
     return !buf_stack || quit_flag;
 }
 
-/*
- * Handle command processing in program that uses select as main control loop.
+/* Handle command processing in program that uses select as main control loop.
  * Like select, but checks whether command input either present in internal
  * buffer
  * or readable from command input.  If so, that command is executed.
@@ -535,55 +554,46 @@ static bool cmd_done()
  * nfds should be set to the maximum file descriptor for network sockets.
  * If nfds == 0, this indicates that there is no pending network activity
  */
-int cmd_select(int nfds,
-               fd_set *readfds,
-               fd_set *writefds,
-               fd_set *exceptfds,
-               struct timeval *timeout)
+int web_connfd;
+static int cmd_select(int nfds,
+                      fd_set *readfds,
+                      fd_set *writefds,
+                      fd_set *exceptfds,
+                      struct timeval *timeout)
 {
-    int infd;
     fd_set local_readset;
 
     if (cmd_done())
         return 0;
 
     if (!block_flag) {
+        int infd;
         /* Process any commands in input buffer */
         if (!readfds)
             readfds = &local_readset;
 
         /* Add input fd to readset for select */
         infd = buf_stack->fd;
+        FD_ZERO(readfds);
         FD_SET(infd, readfds);
+
+        /* If web not ready listen */
+        if (web_fd != -1)
+            FD_SET(web_fd, readfds);
+
         if (infd == STDIN_FILENO && prompt_flag) {
-            printf("%s", prompt);
+            char *cmdline = linenoise(prompt);
+            if (cmdline)
+                interpret_cmd(cmdline);
             fflush(stdout);
             prompt_flag = true;
-        }
-
-        if (infd >= nfds)
-            nfds = infd + 1;
-    }
-    if (nfds == 0)
-        return 0;
-
-    int result = select(nfds, readfds, writefds, exceptfds, timeout);
-    if (result <= 0)
-        return result;
-
-    infd = buf_stack->fd;
-    if (readfds && FD_ISSET(infd, readfds)) {
-        /* Commandline input available */
-        FD_CLR(infd, readfds);
-        result--;
-        if (has_infile) {
-            char *cmdline;
-            cmdline = readline();
+        } else if (infd != STDIN_FILENO) {
+            char *cmdline = readline();
             if (cmdline)
                 interpret_cmd(cmdline);
         }
     }
-    return result;
+    return 0;
 }
 
 bool finish_cmd()
@@ -606,31 +616,31 @@ static bool cmd_maybe(const char *target, const char *src)
     return true;
 }
 
-void completion(const char *buf, linenoiseCompletions *lc)
+void completion(const char *buf, line_completions_t *lc)
 {
     if (strncmp("option ", buf, 7) == 0) {
-        param_ptr plist = param_list;
+        param_element_t *plist = param_list;
 
         while (plist) {
             char str[128] = "";
-            // if parameter is too long, now we just ignore it
+            /* if parameter is too long, now we just ignore it */
             if (strlen(plist->name) > 120)
                 continue;
 
             strcat(str, "option ");
             strcat(str, plist->name);
             if (cmd_maybe(str, buf))
-                linenoiseAddCompletion(lc, str);
+                line_add_completion(lc, str);
 
             plist = plist->next;
         }
         return;
     }
 
-    cmd_ptr clist = cmd_list;
+    cmd_element_t *clist = cmd_list;
     while (clist) {
         if (cmd_maybe(clist->name, buf))
-            linenoiseAddCompletion(lc, clist->name);
+            line_add_completion(lc, clist->name);
 
         clist = clist->next;
     }
@@ -645,11 +655,18 @@ bool run_console(char *infile_name)
 
     if (!has_infile) {
         char *cmdline;
-        while ((cmdline = linenoise(prompt)) != NULL) {
+        while (use_linenoise && (cmdline = linenoise(prompt))) {
             interpret_cmd(cmdline);
-            linenoiseHistoryAdd(cmdline);       /* Add to the history. */
-            linenoiseHistorySave(HISTORY_FILE); /* Save the history on disk. */
-            linenoiseFree(cmdline);
+            line_history_add(cmdline);       /* Add to the history. */
+            line_history_save(HISTORY_FILE); /* Save the history on disk. */
+            line_free(cmdline);
+            while (buf_stack && buf_stack->fd != STDIN_FILENO)
+                cmd_select(0, NULL, NULL, NULL, NULL);
+            has_infile = false;
+        }
+        if (!use_linenoise) {
+            while (!cmd_done())
+                cmd_select(0, NULL, NULL, NULL, NULL);
         }
     } else {
         while (!cmd_done())

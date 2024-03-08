@@ -1,6 +1,9 @@
 CC = gcc
 CFLAGS = -O1 -g -Wall -Werror -Idudect -I.
 
+# Emit a warning should any variable-length array be found within the code.
+CFLAGS += -Wvla
+
 GIT_HOOKS := .git/hooks/applied
 DUT_DIR := dudect
 all: $(GIT_HOOKS) qtest
@@ -36,7 +39,8 @@ $(GIT_HOOKS):
 
 OBJS := qtest.o report.o console.o harness.o queue.o \
         random.o dudect/constant.o dudect/fixture.o dudect/ttest.o \
-        linenoise.o
+        shannon_entropy.o \
+        linenoise.o web.o
 
 deps := $(OBJS:%.o=.%.o.d)
 
@@ -75,5 +79,8 @@ clean:
 	rm -rf .$(DUT_DIR)
 	rm -rf *.dSYM
 	(cd traces; rm -f *~)
+
+distclean: clean
+	rm -f .cmd_history
 
 -include $(deps)

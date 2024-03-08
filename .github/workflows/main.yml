@@ -4,32 +4,39 @@ on: [push, pull_request]
 
 jobs:
   lab0-c:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
-    - uses: actions/checkout@v2.4.0
+    - uses: actions/checkout@v4
+    - uses: webfactory/ssh-agent@v0.7.0
+      continue-on-error: true
+      with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
     - name: install-dependencies
       run: |
             .ci/check-sanity.sh
             sudo apt-get update
             sudo apt-get -q -y install build-essential cppcheck
     - name: make
-      run:  make
+      run:  |
+            git clone git@github.com:sysprog21/lab0-c-private || echo "No provisioning profile found"
+            .ci/check-provisioning.sh
+            make
     - name: make check
       run: |
             make check || (cat scripts/weeping.raw ; exit 1)
-            cat scripts/pikachu.raw
+            cat scripts/kirby.raw
     - name: make test
       run: |
             make test || (cat scripts/weeping.raw ; exit 1)
-            cat scripts/pikachu.raw
+            cat scripts/kirby.raw
 
   coding-style:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
-    - uses: actions/checkout@v2.4.0
+    - uses: actions/checkout@v4
     - name: coding convention
       run: |
-            sudo apt-get install -q -y clang-format-12
-            sh .ci/check-format.sh
-            cat scripts/pikachu.raw
+            sudo apt-get install -q -y clang-format-14
+            .ci/check-newline.sh
+            .ci/check-format.sh
       shell: bash

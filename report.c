@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "report.h"
+#include "web.h"
 
 #define MAX(a, b) ((a) < (b) ? (b) : (a))
 
@@ -44,7 +45,7 @@ void set_verblevel(int level)
     verblevel = level;
 }
 
-bool set_logfile(char *file_name)
+bool set_logfile(const char *file_name)
 {
     logfile = fopen(file_name, "w");
     return logfile != NULL;
@@ -54,10 +55,16 @@ void report_event(message_t msg, char *fmt, ...)
 {
     va_list ap;
     bool fatal = msg == MSG_FATAL;
-    char *msg_name = msg == MSG_WARN    ? "WARNING"
-                     : msg == MSG_ERROR ? "ERROR"
-                                        : "FATAL ERROR";
-    int level = msg == MSG_WARN ? 2 : msg == MSG_ERROR ? 1 : 0;
+    // cppcheck-suppress constVariable
+    static char *msg_name_text[N_MSG] = {
+        "WARNING",
+        "ERROR",
+        "FATAL ERROR",
+    };
+    char *msg_name = msg_name_text[2];
+    if (msg < N_MSG)
+        msg_name = msg_name_text[msg];
+    int level = N_MSG - msg - 1;
     if (verblevel < level)
         return;
 
@@ -88,11 +95,14 @@ void report_event(message_t msg, char *fmt, ...)
     }
 }
 
+#define BUF_SIZE 4096
+extern int web_connfd;
 void report(int level, char *fmt, ...)
 {
     if (!verbfile)
         init_files(stdout, stdout);
 
+    char buffer[BUF_SIZE];
     if (level <= verblevel) {
         va_list ap;
         va_start(ap, fmt);
@@ -108,6 +118,15 @@ void report(int level, char *fmt, ...)
             fflush(logfile);
             va_end(ap);
         }
+        va_start(ap, fmt);
+        vsnprintf(buffer, BUF_SIZE, fmt, ap);
+        va_end(ap);
+    }
+    if (web_connfd) {
+        int len = strlen(buffer);
+        buffer[len] = '\n';
+        buffer[len + 1] = '\0';
+        web_send(web_connfd, buffer);
     }
 }
 
@@ -116,6 +135,7 @@ void report_noreturn(int level, char *fmt, ...)
     if (!verbfile)
         init_files(stdout, stdout);
 
+    char buffer[BUF_SIZE];
     if (level <= verblevel) {
         va_list ap;
         va_start(ap, fmt);
@@ -129,13 +149,19 @@ void report_noreturn(int level, char *fmt, ...)
             fflush(logfile);
             va_end(ap);
         }
+        va_start(ap, fmt);
+        vsnprintf(buffer, BUF_SIZE, fmt, ap);
+        va_end(ap);
     }
+
+    if (web_connfd)
+        web_send(web_connfd, buffer);
 }
 
 /* Functions denoting failures */
 
 /* Need to be able to print without using malloc */
-static void fail_fun(char *format, char *msg)
+static void fail_fun(const char *format, const char *msg)
 {
     snprintf(fail_buf, sizeof(fail_buf), format, msg);
     /* Tack on return */
@@ -183,7 +209,7 @@ static void check_exceed(size_t new_bytes)
 }
 
 /* Call malloc & exit if fails */
-void *malloc_or_fail(size_t bytes, char *fun_name)
+void *malloc_or_fail(size_t bytes, const char *fun_name)
 {
     check_exceed(bytes);
     void *p = malloc(bytes);
@@ -202,7 +228,7 @@ void *malloc_or_fail(size_t bytes, char *fun_name)
 }
 
 /* Call calloc returns NULL & exit if fails */
-void *calloc_or_fail(size_t cnt, size_t bytes, char *fun_name)
+void *calloc_or_fail(size_t cnt, size_t bytes, const char *fun_name)
 {
     check_exceed(cnt * bytes);
     void *p = calloc(cnt, bytes);
@@ -220,7 +246,7 @@ void *calloc_or_fail(size_t cnt, size_t bytes, char *fun_name)
     return p;
 }
 
-char *strsave_or_fail(char *s, char *fun_name)
+char *strsave_or_fail(const char *s, const char *fun_name)
 {
     if (!s)
         return NULL;

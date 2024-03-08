@@ -29,19 +29,18 @@
 
 /* Data structures used by our code */
 
-/*
- * Represent allocated blocks as doubly-linked list, with
+/* Represent allocated blocks as doubly-linked list, with
  * next and prev pointers at beginning
  */
-typedef struct BELE {
-    struct BELE *next, *prev;
+typedef struct __block_element {
+    struct __block_element *next, *prev;
     size_t payload_size;
     size_t magic_header; /* Marker to see if block seems legitimate */
     unsigned char payload[0];
     /* Also place magic number at tail of every block */
-} block_ele_t;
+} block_element_t;
 
-static block_ele_t *allocated = NULL;
+static block_element_t *allocated = NULL;
 static size_t allocated_count = 0;
 
 /* Percent probability of malloc failure */
@@ -54,16 +53,12 @@ static char *error_message = "";
 
 static int time_limit = 1;
 
-/*
- * Data for managing exceptions
- */
+/* Data for managing exceptions */
 static jmp_buf env;
 static volatile sig_atomic_t jmp_ready = false;
 static bool time_limited = false;
 
-/*
- * Internal functions
- */
+/* Internal functions */
 
 /* Should this allocation fail? */
 static bool fail_allocation()
@@ -72,21 +67,21 @@ static bool fail_allocation()
     return (weight < 0.01 * fail_probability);
 }
 
-/*
- * Find header of block, given its payload.
+/* Find header of block, given its payload.
  * Signal error if doesn't seem like legitimate block
  */
-static block_ele_t *find_header(void *p)
+static block_element_t *find_header(void *p)
 {
     if (!p) {
         report_event(MSG_ERROR, "Attempting to free null block");
         error_occurred = true;
     }
 
-    block_ele_t *b = (block_ele_t *) ((size_t) p - sizeof(block_ele_t));
+    block_element_t *b =
+        (block_element_t *) ((size_t) p - sizeof(block_element_t));
     if (cautious_mode) {
         /* Make sure this is really an allocated block */
-        block_ele_t *ab = allocated;
+        block_element_t *ab = allocated;
         bool found = false;
         while (ab && !found) {
             found = ab == b;
@@ -112,16 +107,16 @@ static block_ele_t *find_header(void *p)
 }
 
 /* Given pointer to block, find its footer */
-static size_t *find_footer(block_ele_t *b)
+static size_t *find_footer(block_element_t *b)
 {
     // cppcheck-suppress nullPointerRedundantCheck
-    size_t *p = (size_t *) ((size_t) b + b->payload_size + sizeof(block_ele_t));
+    size_t *p =
+        (size_t *) ((size_t) b + b->payload_size + sizeof(block_element_t));
     return p;
 }
 
-/*
- * Implementation of application functions
- */
+/* Implementation of application functions */
+
 void *test_malloc(size_t size)
 {
     if (noallocate_mode) {
@@ -134,8 +129,8 @@ void *test_malloc(size_t size)
         return NULL;
     }
 
-    block_ele_t *new_block =
-        malloc(size + sizeof(block_ele_t) + sizeof(size_t));
+    block_element_t *new_block =
+        malloc(size + sizeof(block_element_t) + sizeof(size_t));
     if (!new_block) {
         report_event(MSG_FATAL, "Couldn't allocate any more memory");
         error_occurred = true;
@@ -183,7 +178,7 @@ void test_free(void *p)
     if (!p)
         return;
 
-    block_ele_t *b = find_header(p);
+    block_element_t *b = find_header(p);
     size_t footer = *find_footer(b);
     if (footer != MAGICFOOTER) {
         report_event(MSG_ERROR,
@@ -197,8 +192,8 @@ void test_free(void *p)
     memset(p, FILLCHAR, b->payload_size);
 
     /* Unlink from list */
-    block_ele_t *bn = b->next;
-    block_ele_t *bp = b->prev;
+    block_element_t *bn = b->next;
+    block_element_t *bp = b->prev;
     if (bp)
         bp->next = bn;
     else
@@ -218,7 +213,7 @@ char *test_strdup(const char *s)
     if (!new)
         return NULL;
 
-    return (char *) memcpy(new, s, len);
+    return memcpy(new, s, len);
 }
 
 size_t allocation_check()
@@ -226,12 +221,9 @@ size_t allocation_check()
     return allocated_count;
 }
 
-/*
- * Implementation of functions for testing
- */
+/* Implementation of functions for testing */
 
-/*
- * Set/unset cautious mode.
+/* Set/unset cautious mode.
  * In this mode, makes extra sure any block to be freed is currently allocated.
  */
 void set_cautious_mode(bool cautious)
@@ -239,8 +231,7 @@ void set_cautious_mode(bool cautious)
     cautious_mode = cautious;
 }
 
-/*
- * Set/unset restricted allocation mode.
+/* Set/unset restricted allocation mode.
  * In this mode, calls to malloc and free are disallowed.
  */
 void set_noallocate_mode(bool noallocate)
@@ -248,9 +239,7 @@ void set_noallocate_mode(bool noallocate)
     noallocate_mode = noallocate;
 }
 
-/*
- * Return whether any errors have occurred since last time set error limit
- */
+/* Return whether any errors have occurred since last time set error limit */
 bool error_check()
 {
     bool e = error_occurred;
@@ -258,8 +247,7 @@ bool error_check()
     return e;
 }
 
-/*
- * Prepare for a risky operation using setjmp.
+/* Prepare for a risky operation using setjmp.
  * Function returns true for initial return, false for error return
  */
 bool exception_setup(bool limit_time)
@@ -287,9 +275,7 @@ bool exception_setup(bool limit_time)
     return true;
 }
 
-/*
- * Call once past risky code
- */
+/* Call once past risky code */
 void exception_cancel()
 {
     if (time_limited) {
@@ -301,9 +287,7 @@ void exception_cancel()
     error_message = "";
 }
 
-/*
- * Use longjmp to return to most recent exception setup
- */
+/* Use longjmp to return to most recent exception setup */
 void trigger_exception(char *msg)
 {
     error_occurred = true;

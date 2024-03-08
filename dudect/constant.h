@@ -1,34 +1,34 @@
 #ifndef DUDECT_CONSTANT_H
 #define DUDECT_CONSTANT_H
 
+#include <stdbool.h>
 #include <stdint.h>
-#define dut_new() ((void) (l = q_new()))
 
-#define dut_size(n)                                \
-    do {                                           \
-        for (int __iter = 0; __iter < n; ++__iter) \
-            q_size(l);                             \
-    } while (0)
+/* Number of measurements per test */
+#define N_MEASURES 150
 
-#define dut_insert_head(s, n)    \
-    do {                         \
-        int j = n;               \
-        while (j--)              \
-            q_insert_head(l, s); \
-    } while (0)
+/* Allow random number range from 0 to 65535 */
+#define CHUNK_SIZE 2
 
-#define dut_insert_tail(s, n)    \
-    do {                         \
-        int j = n;               \
-        while (j--)              \
-            q_insert_tail(l, s); \
-    } while (0)
+#define DROP_SIZE 20
 
-#define dut_free() ((void) (q_free(l)))
+#define DUT_FUNCS  \
+    _(insert_head) \
+    _(insert_tail) \
+    _(remove_head) \
+    _(remove_tail)
+
+#define DUT(x) DUT_##x
+
+enum {
+#define _(x) DUT(x),
+    DUT_FUNCS
+#undef _
+};
 
 void init_dut();
 void prepare_inputs(uint8_t *input_data, uint8_t *classes);
-void measure(int64_t *before_ticks,
+bool measure(int64_t *before_ticks,
              int64_t *after_ticks,
              uint8_t *input_data,
              int mode);

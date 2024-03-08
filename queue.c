@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "harness.h"
 #include "queue.h"
 
 /* Notice: sometimes, Cppcheck would find the potential NULL pointer bugs,
@@ -11,10 +10,8 @@
  *   cppcheck-suppress nullPointer
  */
 
-/*
- * Create empty queue.
- * Return NULL if could not allocate space.
- */
+
+/* Create an empty queue */
 struct list_head *q_new()
 {
     /* note that list_entry() - Calculate address of entry that contains list
@@ -78,13 +75,7 @@ bool q_insert_head(struct list_head *head, char *s)
     return true;
 }
 
-/*
- * Attempt to insert element at tail of queue.
- * Return true if successful.
- * Return false if q is NULL or could not allocate space.
- * Argument s points to the string to be stored.
- * The function must explicitly allocate space and copy the string into it.
- */
+/* Insert an element at tail of queue */
 bool q_insert_tail(struct list_head *head, char *s)
 {
     element_t *newNode = NULL;
@@ -131,10 +122,7 @@ element_t *q_remove_head(struct list_head *head, char *sp, size_t bufsize)
     return remove_Node(node, sp, bufsize);
 }
 
-/*
- * Attempt to remove element from tail of queue.
- * Other attribute is as same as q_remove_head.
- */
+/* Remove an element from tail of queue */
 element_t *q_remove_tail(struct list_head *head, char *sp, size_t bufsize)
 {
     // queue is NULL or empty
@@ -144,20 +132,7 @@ element_t *q_remove_tail(struct list_head *head, char *sp, size_t bufsize)
     return remove_Node(node, sp, bufsize);
 }
 
-/*
- * WARN: This is for external usage, don't modify it
- * Attempt to release element.
- */
-void q_release_element(element_t *e)
-{
-    free(e->value);
-    free(e);
-}
-
-/*
- * Return number of elements in queue.
- * Return 0 if q is NULL or empty
- */
+/* Return number of elements in queue */
 int q_size(struct list_head *head)
 {
     if (!head)
@@ -235,9 +210,7 @@ bool q_delete_dup(struct list_head *head)
     return true;
 }
 
-/*
- * Attempt to swap every two adjacent nodes.
- */
+/* Swap every two adjacent nodes */
 void q_swap(struct list_head *head)
 {
     // this is done by chiangkd
@@ -273,9 +246,35 @@ void q_reverse(struct list_head *head)
     head->prev = tmp;
 }
 
-/*
- * Sort elements of queue in ascending order
- * No effect if q is NULL or empty. In addition, if q has only one
- * element, do nothing.
- */
-void q_sort(struct list_head *head) {}
+/* Reverse the nodes of the list k at a time */
+void q_reverseK(struct list_head *head, int k)
+{
+    // https://leetcode.com/problems/reverse-nodes-in-k-group/
+}
+
+/* Sort elements of queue in ascending/descending order */
+void q_sort(struct list_head *head, bool descend) {}
+
+/* Remove every node which has a node with a strictly less value anywhere to
+ * the right side of it */
+int q_ascend(struct list_head *head)
+{
+    // https://leetcode.com/problems/remove-nodes-from-linked-list/
+    return 0;
+}
+
+/* Remove every node which has a node with a strictly greater value anywhere to
+ * the right side of it */
+int q_descend(struct list_head *head)
+{
+    // https://leetcode.com/problems/remove-nodes-from-linked-list/
+    return 0;
+}
+
+/* Merge all the queues into one sorted queue, which is in ascending/descending
+ * order */
+int q_merge(struct list_head *head, bool descend)
+{
+    // https://leetcode.com/problems/merge-k-sorted-lists/
+    return 0;
+}

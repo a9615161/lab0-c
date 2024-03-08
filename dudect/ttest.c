@@ -8,14 +8,13 @@
  * See https://en.wikipedia.org/wiki/Welch%27s_t-test
  */
 
-#include "ttest.h"
 #include <assert.h>
 #include <math.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 
-void t_push(t_ctx *ctx, double x, uint8_t class)
+#include "ttest.h"
+
+void t_push(t_context_t *ctx, double x, uint8_t class)
 {
     assert(class == 0 || class == 1);
     ctx->n[class]++;
@@ -28,7 +27,7 @@ void t_push(t_ctx *ctx, double x, uint8_t class)
     ctx->m2[class] = ctx->m2[class] + delta * (x - ctx->mean[class]);
 }
 
-double t_compute(t_ctx *ctx)
+double t_compute(t_context_t *ctx)
 {
     double var[2] = {0.0, 0.0};
     var[0] = ctx->m2[0] / (ctx->n[0] - 1);
@@ -39,7 +38,7 @@ double t_compute(t_ctx *ctx)
     return t_value;
 }
 
-void t_init(t_ctx *ctx)
+void t_init(t_context_t *ctx)
 {
     for (int class = 0; class < 2; class ++) {
         ctx->mean[class] = 0.0;
